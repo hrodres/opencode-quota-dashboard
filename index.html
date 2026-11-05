@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>opencode go · Quota</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --card: #141924;
+    --card-edge: rgba(255, 255, 255, 0.07);
+    --txt: #e8ecf4;
+    --txt-dim: #8b93a5;
+    --txt-mid: #a5aeba;   /* real secondary tone: between dim and txt, readable at 10px */
+    --bar-track: rgba(255, 255, 255, 0.08);
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --crit: #f87171;
+    --net: #64748b;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.35;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100dvh;
+    padding: 12px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .widget {
+    width: 100%;
+    max-width: 420px;
+    background: linear-gradient(165deg, #171d2b 0%, #10141d 100%);
+    border: 1px solid var(--card-edge);
+    border-radius: 24px;
+    padding: 20px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+    transition: border-color 0.4s ease;
+  }
+  .widget.state-error { border-color: rgba(248, 113, 113, 0.45); }
+
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    gap: 8px;
+  }
+
+  .brand { min-width: 0; }
+  .brand-title {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .brand-sub {
+    font-size: 10px;
+    color: var(--txt-dim);
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+  .pill {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    color: var(--txt-dim);
+    background: rgba(255, 255, 255, 0.05);
+    white-space: nowrap;
+    transition: color 0.3s, border-color 0.3s, background 0.3s;
+  }
+  .pill.fresh { color: var(--ok); background: rgba(74, 222, 128, 0.1); border-color: rgba(74, 222, 128, 0.25); }
+  .pill.stale { color: var(--warn); background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.25); }
+  .pill.error { color: var(--crit); background: rgba(248, 113, 113, 0.1); border-color: rgba(248, 113, 113, 0.25); }
+  .pill.loading { color: var(--net); }
+
+  .refresh {
+    position: relative;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--card-edge);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--txt-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s, background 0.2s, transform 0.2s, opacity 0.2s;
+    flex-shrink: 0;
+  }
+  .refresh:hover { color: var(--txt); background: rgba(255, 255, 255, 0.09); }
+  .refresh:active { transform: scale(0.9); }
+  .refresh.spinning .icon { animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Time ring around the button: fills 0→100 % over 60 s since the last fetch.
+     It is decorative: the REAL age of the data lives in the button title and in
+     the pill once it goes stale. SVG is absolutely positioned over the button so
+     it does not touch the button's own transform (:active scales the button,
+     not the ring). */
+  .refresh-ring {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  .refresh-ring .ring-track { stroke: rgba(255, 255, 255, 0.2); }
+  .refresh-ring .ring-arc {
+    stroke: var(--net);
+    opacity: 0.7;
+    transition: stroke-dashoffset 1s linear, stroke 0.3s, opacity 0.3s;
+  }
+  .refresh-ring.fresh .ring-arc { stroke: var(--ok); opacity: 0.75; }
+  .refresh-ring.stale .ring-arc { stroke: var(--warn); opacity: 0.55; }
+  .refresh-ring.error .ring-arc { stroke: var(--crit); opacity: 0.6; }
+
+  .cube {
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid var(--card-edge);
+    border-radius: 16px;
+    padding: 13px 15px;
+  }
+  .cube + .cube { margin-top: 10px; }
+  .cube {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 10px;
+    transition: background 0.3s, border-color 0.3s;
+  }
+  .cube.warn { border-color: rgba(251, 191, 36, 0.3); }
+  .cube.crit { border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.05); }
+
+  .cube-name {
+    font-size: 12px;
+    font-weight: 600;
+    align-self: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cube-desc { font-size: 10px; font-weight: 400; color: var(--txt-dim); grid-column: 1; }
+
+  .cube-pct {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+    align-self: center;
+    font-size: 22px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    transition: color 0.3s;
+  }
+  .cube-pct small { font-size: 10px; font-weight: 600; color: var(--txt-dim); margin-left: 3px; }
+
+  .bar {
+    grid-column: 1 / -1;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--bar-track);
+    overflow: hidden;
+    margin-top: 6px;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--ok);
+    width: 0%;
+    transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1), background 0.3s;
+  }
+  .bar-fill.warn { background: var(--warn); }
+  .bar-fill.crit { background: var(--crit); }
+
+  .cube-reset {
+    grid-column: 1 / -1;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--txt-dim);
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+  }
+  .cube-reset strong {
+    color: var(--txt);
+    font-weight: 600;
+  }
+
+  .error-note {
+    display: none;
+    margin-top: 12px;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--crit);
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.2);
+    border-radius: 10px;
+    padding: 8px 12px;
+  }
+  .error-note.show { display: block; }
+
+  /* ---- monthly projection ----
+     A NESTED well inside the monthly cube: the inverse of the card background
+     (slightly darker mass + a hairline), so it reads as a real bevel and as an
+     inset instrument rather than just another card stacked inside. */
+  .extra {
+    grid-column: 1 / -1;
+    margin-top: 10px;
+    padding: 11px 12px 10px;
+    background: rgba(0, 0, 0, 0.32);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+    border-radius: 8px;   /* smaller than the card: it does not compete as a sibling surface */
+  }
+  .extra[hidden] { display: none; }
+  /* Projection header: a SECTION title (small, dim), not a card title: inside
+     the nested panel it must not compete with "Monthly". The basis sits below it
+     as a subtitle. */
+  .extra-head {
+    display: grid;
+    grid-template-columns: 1fr auto 14px;
+    align-items: center;
+    gap: 2px 8px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+  .extra-head::-webkit-details-marker { display: none; }
+  .extra-head:focus-visible { outline: 2px solid var(--net); outline-offset: 3px; }
+  /* Collapsed: the right side shows the value that matters (days left), not the history. */
+  .extra-peek {
+    grid-column: 2;
+    grid-row: 1;
+    font-size: 10px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    text-align: right;
+    color: var(--crit);
+  }
+  .extra-peek[hidden] { display: none; }
+  .extra-peek.ok { color: var(--ok); }
+  /* Collapsed: right side = days left. Expanded: right side = history. */
+  .extra[open] .extra-peek { display: none; }
+  .extra:not([open]) .extra-basis { display: none; }
+  .extra-chev {
+    width: 9px;
+    height: 9px;
+    border-right: 1.6px solid var(--txt-mid);
+    border-bottom: 1.6px solid var(--txt-mid);
+    transform: rotate(45deg) translateY(-2px);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+  }
+  .extra[open] .extra-chev { transform: rotate(225deg) translateY(-2px); }
+  .extra:not([open]) > .extra-head { margin-bottom: 0; }
+  /* Title follows the same mould as .cube-name (12px/600), dimmed so it sits
+     below "Monthly". Single scale: 10 label / 12 data / 15 headline / 22 hero. */
+  .extra-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--txt-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    align-self: center;
+  }
+  .extra-basis {
+    grid-column: 2;
+    grid-row: 1;
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--txt-mid);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+  }
+
+  .proj-bar {
+    position: relative;
+    height: 7px;   /* same height as the cube bars */
+    border-radius: 999px;
+    background: var(--bar-track);
+    /* visible: the "dry" tick pokes above the track */
+    overflow: visible;
+    margin-bottom: 4px;
+  }
+  .proj-fill {
+    height: 100%;
+    border-radius: inherit;
+    width: 0%;
+    background: var(--ok);
+    transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1), background 0.3s;
+  }
+  .proj-fill.warn { background: var(--warn); }
+  .proj-fill.crit { background: var(--crit); }
+
+  /* The bar is the whole monthly cycle, in THREE segments:
+       .proj-fill  start  -> now      (already spent, muted green)
+       .proj-left  now    -> limit    (still has quota, green)
+       .proj-dry   limit  -> end      (dry, striped red)
+     The red segment starts at the LIMIT (the day it hits 100 %), not at now:
+     that is the thing to see at a glance. If the rate holds until the reset
+     there is no dry segment and everything stays green. */
+  .proj-fill {
+    background: var(--ok);
+    opacity: 0.45;
+    border-radius: 999px 0 0 999px;
+  }
+  .proj-left {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 0%;
+    background: var(--ok);
+    transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1), width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .proj-left[hidden] { display: none; }
+  .proj-dry {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 100%;
+    width: 0%;
+    border-radius: 0 999px 999px 0;
+    background: repeating-linear-gradient(135deg,
+      rgba(248, 113, 113, 0.62) 0 4px,
+      rgba(248, 113, 113, 0.18) 4px 8px);
+    transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1), width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .proj-dry[hidden] { display: none; }
+
+  /* Vertical LIMIT marker (the day the bucket runs dry). */
+  .proj-mark {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    width: 0;
+    transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .proj-mark[hidden] { display: none; }
+  .proj-mark-tick {
+    position: absolute;
+    left: -1px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--txt);
+    box-shadow: 0 0 6px rgba(232, 236, 244, 0.45);
+  }
+  /* The marker colour is the verdict, same as the bar's. */
+  .proj-mark.ok .proj-mark-tick {
+    background: var(--ok);
+    box-shadow: 0 0 6px rgba(74, 222, 128, 0.7);
+  }
+  .proj-mark.crit .proj-mark-tick {
+    background: var(--crit);
+    box-shadow: 0 0 6px rgba(248, 113, 113, 0.75);
+  }
+
+  /* Axis: start on the left, end on the right, now/limit under its own mark. */
+  .proj-axis {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--txt-mid);
+    padding-top: 3px;
+    /* Every axis label sits on a SINGLE line, under the bar. */
+    margin-top: 7px;
+    margin-bottom: 11px;
+    white-space: nowrap;
+  }
+  .proj-axis .mid {
+    position: absolute;
+    top: 3px;
+    font-weight: 400;
+    color: var(--txt-dim);
+  }
+  /* Axis dates stay neutral: the visual alarm comes from the mark/tick, and red
+     is RESERVED for the delta. Previously red date + red delta + red projection
+     all competed for the same alarm. */
+  .proj-axis .mid.ok { color: var(--txt-dim); }
+  .proj-axis .mid.crit { color: var(--txt-dim); }
+  .proj-axis .mid[hidden] { display: none; }
+  /* "now" sits on the SAME line as start/end. If it gets too close to the limit
+     date, JS hides it so the two do not collide. */
+  .proj-axis .mid.today {
+    color: var(--txt-mid);
+    font-weight: 400;
+    top: 3px;
+  }
+
+  /* Thin NOW mark over the bar: separates what is spent from what is left. */
+  .proj-now {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: rgba(232, 236, 244, 0.55);
+    transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .proj-row {
+    display: flex;
+    justify-content: space-between;
+    /* Minimum gap: without it the long "Hits 100 %" value almost touched the
+       label. The value no longer forces a single line: if it does not fit it
+       wraps onto a second line, right-aligned, instead of bunching up.
+       Before: .v with white-space:nowrap glued to the label. */
+    gap: 10px;
+    font-size: 12px;
+    line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+    padding: 3px 0;
+  }
+  .proj-row .k { color: var(--txt-dim); font-weight: 400; }
+  .proj-row .v { font-weight: 600; text-align: right; }
+  /* The "Hits 100 %" row carries a date plus days: it needs more width than the
+     others without breaking the number or pushing the label's "%" to a new
+     line. */
+  .proj-row.wide .k { flex: 0 0 auto; white-space: nowrap; }
+  .proj-row.wide .v { flex: 1 1 auto; min-width: 0; }
+  /* "Hits 100 %" is the CONCLUSION of the projection: it pauses before (relative
+     to the axis) and after (relative to the metrics). The dim label asks, the
+     bold value answers. Before it competed on line and size with the table. */
+  .proj-row.wide {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    margin-top: 10px;
+    margin-bottom: 7px;
+  }
+  .proj-row.wide .k { font-size: 10px; font-weight: 400; color: var(--txt-mid); }
+  .proj-row.wide .v {
+    font-size: 15px;
+    font-weight: 700;
+    text-align: left;
+    /* Date on the left and the delta pushed all the way to the RIGHT. */
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    align-self: stretch;
+    width: 100%;
+  }
+  /* Neutral date + red delta: the date is the fact, the delta only warns.
+     Previously the whole sentence was red and competed with projection and
+     margin, which are the same overshoot: three reds for one fact. */
+  .proj-hit-when { font-weight: 700; }
+  .proj-hit-delta { margin-left: auto; color: var(--crit); text-align: right; }
+  .proj-hit-delta[hidden] { display: none; }
+  .proj-row.wide .v.warn { color: var(--warn); }
+  .proj-row.wide .v.ok { color: var(--ok); }
+  .proj-row.wide .v.crit { color: var(--crit); }
+  .proj-row .v { font-weight: 600; }
+  .proj-row .v.warn { color: var(--warn); }
+  .proj-row .v.ok { color: var(--ok); }
+  .proj-row .v.crit { color: var(--crit); }
+
+
+  @media (min-width: 480px) {
+    .widget { padding: 22px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bar-fill, .cube, .pill, .refresh, .proj-fill, .proj-left, .proj-dry, .proj-mark {
+      transition: none;
+    }
+    .refresh.spinning svg { animation: none; }
+  }
+</style>
+</head>
+<body>
+  <main class="widget" id="widget" aria-label="opencode go quota">
+    <header class="head">
+      <div class="brand">
+        <div class="brand-title">opencode go</div>
+        <div class="brand-sub" id="generated">reading quota…</div>
+      </div>
+      <div class="head-actions">
+        <span class="pill" id="statusPill" data-state="loading">Syncing</span>
+        <button class="refresh" id="refreshBtn" type="button" aria-label="Refresh now" title="Refresh now">
+          <svg class="refresh-ring" aria-hidden="true" focusable="false" width="40" height="40" viewBox="0 0 40 40">
+            <circle class="ring-track" cx="20" cy="20" r="18.5" fill="none" stroke-width="2"/>
+            <circle class="ring-arc" cx="20" cy="20" r="18.5" fill="none" stroke-width="2" stroke-linecap="round" stroke-dasharray="116.24" stroke-dashoffset="116.24" transform="rotate(-90 20 20)"/>
+          </svg>
+          <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+            <polyline points="21 3 21 9 15 9"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="cube" id="cube-rolling">
+      <span class="cube-name">Rolling</span>
+      <span class="cube-desc">5-hour window</span>
+      <span class="cube-pct"><span class="num">—</span><small>%</small></span>
+      <div class="bar"><div class="bar-fill"></div></div>
+      <div class="cube-reset">Resets: <strong data-count="rolling">— —</strong></div>
+    </section>
+
+    <section class="cube" id="cube-weekly">
+      <span class="cube-name">Weekly</span>
+      <span class="cube-desc">Weekly cycle</span>
+      <span class="cube-pct"><span class="num">—</span><small>%</small></span>
+      <div class="bar"><div class="bar-fill"></div></div>
+      <div class="cube-reset">Resets: <strong data-count="weekly">— —</strong></div>
+    </section>
+
+    <section class="cube" id="cube-monthly">
+      <span class="cube-name">Monthly</span>
+      <span class="cube-desc">Monthly cycle</span>
+      <span class="cube-pct"><span class="num">—</span><small>%</small></span>
+      <div class="bar"><div class="bar-fill"></div></div>
+      <div class="cube-reset">Resets: <strong data-count="monthly">— —</strong></div>
+
+      <details class="extra" id="projBlock" hidden>
+        <summary class="extra-head">
+          <span class="extra-title">Projection</span>
+          <span class="extra-basis" id="projBasis"></span>
+          <span class="extra-peek" id="projPeek" hidden></span>
+          <span class="extra-chev" aria-hidden="true"></span>
+        </summary>
+      <div class="proj-bar" id="projBar">
+        <div class="proj-fill" id="projFill"></div>
+        <div class="proj-left" id="projLeft"></div>
+        <div class="proj-dry" id="projDry" hidden></div>
+        <div class="proj-now" id="projNow"></div>
+        <div class="proj-mark" id="projMark" hidden>
+          <span class="proj-mark-tick"></span>
+        </div>
+      </div>
+      <div class="proj-axis">
+        <span id="projAxisStart">start</span>
+        <span class="mid today" id="projAxisToday">now</span>
+        <span class="mid" id="projAxisMid" hidden>—</span>
+        <span id="projAxisEnd">end</span>
+      </div>
+        <div class="proj-row wide"><span class="k">Hits 100 %</span><span class="v" id="projHit"><span class="proj-hit-when" id="projHitWhen">—</span><span class="proj-hit-delta" id="projHitDelta" hidden></span></span></div>
+        <div class="proj-row"><span class="k">Projected at reset</span><span class="v" id="projValue">—</span></div>
+        <div class="proj-row"><span class="k" id="projMarginK">Remaining margin</span><span class="v" id="projMargin">—</span></div>
+        <div class="proj-row"><span class="k">Burn rate</span><span class="v" id="projRate">—</span></div>
+      </details>
+    </section>
+
+    <div class="error-note" id="errorNote"></div>
+
+  </main>
+
+<script>
+(function () {
+  "use strict";
+
+  var REFRESH_MS = 60000;
+  var STALE_S = 300;               // por encima de esta edad el dato se considera obsoleto
+  var LEVELS = { normal: "ok", warn: "warn", crit: "crit" };
+
+  var widget = document.getElementById("widget");
+  var statusPill = document.getElementById("statusPill");
+  var generatedEl = document.getElementById("generated");
+  var refreshBtn = document.getElementById("refreshBtn");
+  var errorNote = document.getElementById("errorNote");
+  var refreshRing = document.querySelector("#refreshBtn .refresh-ring");
+  var ringArc = document.querySelector("#refreshBtn .ring-arc");
+  var cubes = {
+    rolling: document.getElementById("cube-rolling"),
+    weekly: document.getElementById("cube-weekly"),
+    monthly: document.getElementById("cube-monthly")
+  };
+
+  var projBlock = document.getElementById("projBlock");
+  var projBasis = document.getElementById("projBasis");
+  var projPeek = document.getElementById("projPeek");
+  var projFill = document.getElementById("projFill");
+  var projValue = document.getElementById("projValue");
+  var projMargin = document.getElementById("projMargin");
+  var projMarginK = document.getElementById("projMarginK");
+  var projRate = document.getElementById("projRate");
+  var projHit = document.getElementById("projHit");
+  var projHitWhen = document.getElementById("projHitWhen");
+  var projHitDelta = document.getElementById("projHitDelta");
+  var projLeft = document.getElementById("projLeft");
+  var projDry = document.getElementById("projDry");
+  var projNow = document.getElementById("projNow");
+  var projMark = document.getElementById("projMark");
+  var projAxisStart = document.getElementById("projAxisStart");
+  var projAxisEnd = document.getElementById("projAxisEnd");
+  var projAxisToday = document.getElementById("projAxisToday");
+  var projAxisMid = document.getElementById("projAxisMid");
+
+  // Last good payload; kept if a later fetch fails.
+  var lastGood = null;
+  var lastGoodAt = 0;   // ms de la última recepción buena
+  var dataState = "loading"; // fresh | stale | error
+  var inflight = false;
+  var RING_C = 116.24;         // circunferencia del anillo (r = 18.5)
+  var ringEpoch = Date.now();  // última descarga: el anillo cuenta desde aquí
+
+  var dtfDate = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  var dtfShort = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+  var dtfDay = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  var dtfAxis = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+
+  // Number formatting via Intl so decimals and dates always agree.
+  // maxFractionDigits 2 is used for the burn rate.
+  var nf1 = new Intl.NumberFormat("en-GB", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  var nf2 = new Intl.NumberFormat("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  function fmtPct(n) { return nf1.format(n) + " %"; }
+  function fmtDays(n) { return nf1.format(n) + " d"; }
+
+  var CUBE_LABEL = { rolling: "5 h", weekly: "semanal", monthly: "mensual" };
+
+  function levelOf(percent) {
+    if (percent >= 90) return "crit";
+    if (percent >= 75) return "warn";
+    return "normal";
+  }
+
+  function setStatus(state, note) {
+    dataState = state;
+    statusPill.dataset.state = state;
+    statusPill.textContent = state === "fresh" ? "Live"
+      : state === "stale" ? "Stale"
+      : state === "error" ? "Offline"
+      : "Loading";
+    statusPill.className = "pill " + state;
+    widget.classList.toggle("state-error", state === "error" || state === "stale");
+    if (note) {
+      errorNote.textContent = note;
+      errorNote.classList.add("show");
+    } else {
+      errorNote.classList.remove("show");
+      errorNote.textContent = "";
+    }
+  }
+
+  function fmtRelative(ms) {
+    if (ms <= 0) return "now";
+    var m = Math.floor(ms / 60000) % 60;
+    var h = Math.floor(ms / 3600000) % 24;
+    var d = Math.floor(ms / 86400000);
+    var out = [];
+    if (d) out.push(d + " d");
+    if (h) out.push(h + " h");
+    if (m && !d) out.push(m + " min");
+    if (!out.length) out.push("less than 1 min");
+    return "in " + out.join(" ");
+  }
+
+  function renderCubes() {
+    if (!lastGood) return;
+    var usage = lastGood.usage || {};
+    var now = Date.now();
+    ["rolling", "weekly", "monthly"].forEach(function (k) {
+      var u = usage[k];
+      var cube = cubes[k];
+      if (!u) {
+        cube.querySelector(".num").textContent = "—";
+        cube.querySelector(".bar-fill").style.width = "0%";
+        cube.querySelector("[data-count]").textContent = "no data";
+        return;
+      }
+      var pct = Number(u.percent) || 0;
+      var clamped = Math.max(0, Math.min(100, pct));
+      var level = levelOf(clamped);
+      cube.querySelector(".num").textContent = String(Math.round(clamped));
+      var fill = cube.querySelector(".bar-fill");
+      fill.style.width = clamped + "%";
+      fill.className = "bar-fill " + LEVELS[level];
+      var label = cube.querySelector(".cube-pct");
+      label.style.color = level === "crit" ? "var(--crit)" : level === "warn" ? "var(--warn)" : "var(--txt)";
+      cube.classList.toggle("warn", level === "warn");
+      cube.classList.toggle("crit", level === "crit");
+      var reset = u.resetsAt ? Date.parse(u.resetsAt) : NaN;
+      if (isNaN(reset)) {
+        cube.querySelector("[data-count]").textContent = "unknown date";
+      } else if (reset <= now) {
+        cube.querySelector("[data-count]").textContent = "reset at " + dtfShort.format(new Date(reset));
+      } else {
+        cube.querySelector("[data-count]").textContent = fmtRelative(reset - now);
+      }
+    });
+  }
+
+  // ---- time ring + button tooltip ----
+  // The ring measures the fetch cycle (0→60 s), not the age of the data.
+  // The real age lives in the button title (updateBtnTitle) and the pill.
+  function drawRing(now, instant) {
+    if (!ringArc) return;
+    var p = Math.max(0, Math.min(1, (now - ringEpoch) / REFRESH_MS));
+    var off = (RING_C * (1 - p)).toFixed(2);
+    if (instant) {
+      // On restart the ring must jump without a transition, otherwise it
+      // visibly "unfills" backwards.
+      var prev = ringArc.style.transition;
+      ringArc.style.transition = "none";
+      ringArc.style.strokeDashoffset = off;
+      void ringArc.getBoundingClientRect();
+      ringArc.style.transition = prev;
+    } else {
+      ringArc.style.strokeDashoffset = off;
+    }
+  }
+
+  function updateRingState() {
+    if (refreshRing) refreshRing.setAttribute("class", "refresh-ring " + dataState);
+  }
+
+  function updateBtnTitle(now) {
+    if (!refreshBtn) return;
+    if (!lastGood) { refreshBtn.title = "Refresh now"; return; }
+    var genMs = Date.parse(lastGood.generated);
+    var genTime = !isNaN(genMs) ? genMs : lastGoodAt;
+    var age = Math.max(0, Math.floor((now - genTime) / 1000));
+    refreshBtn.title = "Refresh now · data " + age + " s old";
+  }
+
+  // ---- monthly projection ----
+  function renderProjection(p) {
+    if (!p || typeof p.current !== "number") {
+      projBlock.hidden = true;
+      return;
+    }
+    projBlock.hidden = false;
+    var now = Math.max(0, Math.min(100, p.current));
+    var proj = Math.max(0, Math.min(100, p.projected));
+    var level = p.over ? "crit" : proj >= 75 ? "warn" : "ok";
+
+    // The bar is the WHOLE cycle, in three segments on one time axis:
+    //   start -> now   : .proj-fill  (already spent, muted green)
+    //   now   -> limit : .proj-left  (still has quota, green)
+    //   limit -> end   : .proj-dry   (dry, striped red)
+    // The limit is the day the bucket hits 100 %, NOT today: that is exactly
+    // what the bar has to show. If the rate holds until the reset there is no
+    // limit (ok) and the dry segment disappears.
+    var ok = !p.exhaust_at;
+    var total = (typeof p.hours_total === "number" && p.hours_total > 0)
+      ? p.hours_total : null;
+    var todayPct = total && typeof p.hours_elapsed === "number"
+      ? (p.hours_elapsed / total) * 100 : 0;
+    todayPct = Math.max(0, Math.min(100, todayPct));
+
+    // Limit position: now + how long the bucket lasts, in cycle hours.
+    var limitPct = 100;
+    if (!ok && total && typeof p.hours_to_exhaust === "number") {
+      limitPct = ((p.hours_elapsed + p.hours_to_exhaust) / total) * 100;
+    }
+    limitPct = Math.max(todayPct, Math.min(100, limitPct));
+
+    projFill.style.width = todayPct + "%";
+
+    if (projLeft) {
+      projLeft.hidden = false;
+      projLeft.style.left = todayPct + "%";
+      projLeft.style.width = Math.max(0, limitPct - todayPct) + "%";
+      projLeft.className = "proj-left";
+    }
+    if (projDry) {
+      projDry.hidden = ok || limitPct >= 100;
+      projDry.style.left = limitPct + "%";
+      projDry.style.width = Math.max(0, 100 - limitPct) + "%";
+    }
+    if (projNow) projNow.style.left = todayPct + "%";
+
+    // LIMIT mark, on its date. This is the reference that used to be missing.
+    if (projMark) {
+      projMark.hidden = ok;
+      projMark.style.left = limitPct + "%";
+      projMark.className = "proj-mark crit";
+    }
+
+    // "now" on the axis ONLY if it breathes relative to the limit date: when
+    // exhaustion is imminent the two labels collide and "now" is pure noise
+    // (the limit is what matters). With no limit (ok) or enough distance it
+    // comes back.
+
+    // Axis: start, now (discreet), limit (if any) and end.
+    var startD = p.cycle_start ? new Date(p.cycle_start) : null;
+    var resetD = p.resets_at ? new Date(p.resets_at) : null;
+    if (projAxisStart) {
+      projAxisStart.textContent = startD && !isNaN(startD)
+        ? "start " + dtfAxis.format(startD) : "start";
+    }
+    if (projAxisEnd) {
+      projAxisEnd.textContent = resetD && !isNaN(resetD)
+        ? "end " + dtfAxis.format(resetD) : "end";
+    }
+    if (projAxisToday) {
+      projAxisToday.hidden = !ok && (limitPct - todayPct) < 15;
+      projAxisToday.style.left = todayPct + "%";
+      projAxisToday.style.transform = "translateX(-50%)";
+    }
+    // No legend: the bar colours are explained by the axis and the rows.
+    if (projAxisMid) {
+      if (!ok && p.exhaust_at) {
+        var limD = new Date(p.exhaust_at);
+        projAxisMid.hidden = false;
+        projAxisMid.textContent = dtfAxis.format(limD);
+        projAxisMid.style.left = limitPct + "%";
+        projAxisMid.style.transform = "translateX(-50%)";
+        projAxisMid.className = "mid";
+      } else {
+        projAxisMid.hidden = true;
+      }
+    }
+
+    projValue.textContent = fmtPct(p.projected);
+    // Red text is RESERVED for the delta (the decision). The projected number
+    // alarms through size, not colour: one red per fact.
+    projValue.className = "v";
+    // A negative margin DUPLICATES the overshoot that projValue already paints
+    // in red: redundant, not a finding. Neutral when nothing is left over,
+    // warn/ok when there is. Without a margin the row read "Remaining margin
+    // -125.7 %": a double negative. The normal case (margin > 0) keeps label
+    // and sign; when the rate falls short the row becomes "Projected overrun"
+    // with the overrun positive. projValue already alarms by size, so red text
+    // stays reserved for the delta.
+    if (p.margin >= 0) {
+      projMarginK.textContent = "Remaining margin";
+      projMargin.textContent = "+" + nf1.format(p.margin) + " %";
+    } else {
+      projMarginK.textContent = "Projected overrun";
+      projMargin.textContent = nf1.format(-p.margin) + " %";
+    }
+    projMargin.className = "v" + (p.margin >= 25 ? " ok" : p.margin > 0 ? " warn" : "");
+    projRate.textContent = nf2.format(p.rate_per_day) + " %/day";
+    projBasis.textContent = p.basis || "";
+
+    // Date the bucket hits 100 % at the current rate. This is what matters when
+    // the projection runs far over: not "you will end at 244 %" but "you run dry
+    // on day X, Y days before the reset".
+    if (!projHit) return;
+    if (p.exhaust_at) {
+      var d = new Date(p.exhaust_at);
+      var dias = p.days_before_reset;
+      // Neutral date plus a separate red delta: one decision red per row.
+      projHitWhen.textContent = dtfDay.format(d) + " " + dtfShort.format(d);
+      // When exhaustion is CLOSE, "how much is left" says more than "how many
+      // days early": the reset is still far away and is not the decision.
+      // Threshold: 7 days; under 24 h it narrows to hours.
+      var horasRest = (typeof p.hours_to_exhaust === "number")
+        ? p.hours_to_exhaust
+        : (d.getTime() - Date.now()) / 3600000;
+      var quedaTxt = "";
+      if (horasRest > 0 && horasRest <= 24) {
+        quedaTxt = nf1.format(horasRest) + " h left";
+      } else if (horasRest > 0 && horasRest <= 7 * 24) {
+        quedaTxt = nf1.format(horasRest / 24) + " d left";
+      }
+      var deltaTxt = dias > 0 ? (quedaTxt || fmtDays(dias) + " early") : "";
+      projHitDelta.textContent = deltaTxt;
+      projHitDelta.hidden = !deltaTxt;
+      // Collapsed, the right-hand summary shows the value that matters.
+      if (projPeek) {
+        projPeek.textContent = deltaTxt;
+        projPeek.hidden = !deltaTxt;
+        // Explicit reset: if it previously said "lasts" (green) it must not
+        // stay green when exhaustion comes back.
+        projPeek.className = "extra-peek";
+      }
+      projHit.className = "v";
+    } else {
+      projHitWhen.textContent = "does not reach reset";
+      projHitDelta.hidden = true;
+      if (projPeek) {
+        projPeek.textContent = "lasts";
+        projPeek.hidden = false;
+        projPeek.className = "extra-peek ok";
+      }
+      projHit.className = "v ok";
+    }
+  }
+
+  // Countdown every second from the last good reading, with no new requests.
+  function tick() {
+    if (!lastGood) return;
+    var now = Date.now();
+    var usage = lastGood.usage || {};
+    ["rolling", "weekly", "monthly"].forEach(function (k) {
+      var u = usage[k];
+      if (!u || !u.resetsAt) return;
+      var reset = Date.parse(u.resetsAt);
+      if (isNaN(reset)) return;
+      cubes[k].querySelector("[data-count]").textContent = reset <= now
+        ? "reset at " + dtfShort.format(new Date(reset))
+        : fmtRelative(reset - now);
+    });
+    // live freshness degradation
+    if (dataState === "fresh") {
+      var genMs = Date.parse(lastGood.generated);
+      var age = !isNaN(genMs) ? (now - genMs) / 1000 : 0;
+      if (age > STALE_S || lastGood.stale) setStatus("stale");
+    }
+    updateRingState();
+    drawRing(now, false);
+    updateBtnTitle(now);
+  }
+
+  function applyPayload(payload) {
+    if (!payload || typeof payload !== "object" || payload.ok !== true) {
+      throw new Error("invalid payload");
+    }
+    if (payload.error) {
+      throw new Error(String(payload.error));
+    }
+    lastGood = payload;
+    lastGoodAt = Date.now();
+    var genMs = Date.parse(payload.generated);
+    if (!isNaN(genMs)) {
+      generatedEl.textContent = dtfDate.format(new Date(genMs));
+    }
+    var age = isNaN(genMs) ? 0 : (Date.now() - genMs) / 1000;
+    if (payload.stale || age > STALE_S) {
+      setStatus("stale");
+    } else {
+      setStatus("fresh");
+    }
+    renderCubes();
+    renderProjection(payload.projection);
+  }
+
+  function handleFetchError(err) {
+    // Keep the last good reading and degrade it to stale in the UI.
+    if (lastGood) {
+      setStatus("stale", err && err.message ? "Offline: showing the last valid reading." : null);
+      if (err && err.message) errorNote.textContent = "Offline: showing the last valid reading.";
+      errorNote.classList.add("show");
+    } else {
+      setStatus("error", "Could not load quota: " + (err && err.message ? err.message : "network error") + ".");
+    }
+  }
+
+  function fetchQuota() {
+    if (inflight) return;
+    inflight = true;
+    refreshBtn.classList.add("spinning");
+    fetch("/quota.json", { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (payload) {
+        applyPayload(payload);
+      })
+      .catch(function (err) {
+        handleFetchError(err);
+      })
+      .finally(function () {
+        inflight = false;
+        refreshBtn.classList.remove("spinning");
+        ringEpoch = Date.now();
+        drawRing(ringEpoch, true);   // reinicio instantáneo del anillo tras cada descarga
+        tick();
+      });
+  }
+
+  refreshBtn.addEventListener("click", fetchQuota);
+
+  // First run + 60 s refresh + local 1 s clock.
+  fetchQuota();
+  setInterval(fetchQuota, REFRESH_MS);
+  setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>

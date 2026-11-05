@@ -1,0 +1,20 @@
+# Runtime state: local usage samples, different on every machine.
+state.json
+
+# Your API key, if you use the file method.
+api_key
+.opencode-key
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editors / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
