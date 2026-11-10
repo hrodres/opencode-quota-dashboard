@@ -190,7 +190,12 @@ def _save_state(st):
 def record_sample(usage, ts):
     """Store the monthly percentage so the real burn rate can be measured.
 
-    One sample per 10 minutes, kept for 7 days.
+    One sample per 10 minutes, kept for 35 days: that is one full monthly
+    cycle (~31 d), which is what the per-day bars need in order not to be
+    born half empty. Cost is trivial (~4,100 samples, ~100 KB).
+
+    Raising this did NOT recover what the old 7-day cut had already purged;
+    a cycle already in progress keeps its gap until the next one starts.
     """
     m = (usage or {}).get("monthly") or {}
     pct = m.get("percent")
@@ -199,7 +204,7 @@ def record_sample(usage, ts):
     st = _load_state()
     s = [x for x in st["samples"] if isinstance(x, list) and len(x) == 2]
     s.append([int(ts), float(pct)])
-    cutoff = ts - 7 * 86400
+    cutoff = ts - 35 * 86400
     s = [x for x in s if x[0] >= cutoff]
     thinned = []
     for x in s:
@@ -208,6 +213,62 @@ def record_sample(usage, ts):
     st["samples"] = thinned
     _save_state(st)
     return st
+
+
+def daily_deltas(samples, cycle_start, now):
+    """Consumption per local day inside the cycle, for the bar's crest.
+
+    delta = max-min of % inside the day's window. Same logic as the burn rate
+    (how much it rose between the first and last sample of the day), applied to
+    each day separately.
+
+    partial = the day is NOT fully covered by samples. Two different cases, and
+    they are not the same state:
+      * in_progress: the day has not finished yet (today). delta is a MINIMUM.
+      * stale edges: a past day whose samples start late or end early, because
+        retention purged the beginning or the install began mid-day.
+    Both make delta a floor, not a total. The front end dims them so they are
+    never read as a complete day.
+    """
+    out = []
+    if not samples:
+        return out
+    # Samples land every 600 s (worst gap measured: 720 s), so a complete day
+    # never exceeds this tolerance and a truncated one always does.
+    TOL = 1200
+    day = cycle_start.astimezone(TZ).date()
+    last = now.astimezone(TZ).date()
+    while day <= last:
+        d0 = datetime(day.year, day.month, day.day, tzinfo=TZ)
+        d1 = d0 + timedelta(days=1)
+        # Edges of the REAL local day, not of the clipped window: measuring
+        # coverage against (w1 - w0) makes it always come out "covered", so
+        # partial never fires and today is painted as a finished day.
+        edge0 = d0.astimezone(timezone.utc).timestamp()
+        edge1 = d1.astimezone(timezone.utc).timestamp()
+        w0 = max(cycle_start, d0.astimezone(timezone.utc))
+        w1 = min(now, d1.astimezone(timezone.utc))
+        if w1 > w0:
+            a, b = w0.timestamp(), w1.timestamp()
+            sub = [x for x in samples if a <= x[0] <= b]
+            delta = partial = None
+            if len(sub) >= 2:
+                vals = [x[1] for x in sub]
+                delta = round(max(vals) - min(vals), 1)
+                cover = (sub[-1][0] - sub[0][0]) / (b - a)
+                partial = (cover < 0.9
+                           or (sub[0][0] - edge0) > TOL
+                           or (edge1 - sub[-1][0]) > TOL)
+            out.append({
+                "date": day.isoformat(),
+                "start": w0.isoformat(timespec="seconds"),
+                "end": w1.isoformat(timespec="seconds"),
+                "delta": delta,
+                "partial": bool(partial),
+                "in_progress": now < d1,
+            })
+        day += timedelta(days=1)
+    return out
 
 
 def projection(usage, st, now):
@@ -226,9 +287,26 @@ def projection(usage, st, now):
 
     rate = basis = None
     samples = st.get("samples") or []
+    # Cut at the last reset: if the % falls, everything before is another cycle.
+    # Without this, samples from both sides of the reset get mixed into one
+    # window and the delta can come out positive by accident (5 % before, 8 %
+    # three days later -> +3), giving a nonsensical rate that does NOT fall
+    # through to the fallback either, because the guard only checked delta < 0.
+    cut = 0
+    for i in range(1, len(samples)):
+        if samples[i][1] < samples[i - 1][1]:
+            cut = i
+    samples = samples[cut:]
     if len(samples) >= 2:
-        span_h = (samples[-1][0] - samples[0][0]) / 3600.0
-        delta = samples[-1][1] - samples[0][1]
+        # 48 h window. Measured against 7 d and 24 h: it wins at 24 h (MAE 3.09
+        # vs 4.31 vs 3.39 pp) and it reflects the rate you have NOW. The 7-day
+        # chord dragged in old spikes and overestimated 3.3x.
+        WIN_H = 48.0
+        sub = [x for x in samples if x[0] >= samples[-1][0] - WIN_H * 3600]
+        if len(sub) < 2:
+            sub = samples
+        span_h = (sub[-1][0] - sub[0][0]) / 3600.0
+        delta = sub[-1][1] - sub[0][1]
         if span_h >= 2 and delta >= 0:
             rate = delta / span_h
             basis = "history %s h" % ("%.1f" % span_h)
@@ -250,6 +328,11 @@ def projection(usage, st, now):
 
     projected = pct + rate * hours_left
 
+    # Sustainable ceiling: how much %/day fits between here and the reset.
+    # Exact arithmetic, no model, and the only number the measured rate can be
+    # read against without ambiguity.
+    cap_per_day = round((100.0 - pct) / hours_left * 24.0, 2) if hours_left > 0 else None
+
     # Date the bucket hits 100 %. If the current rate survives until the reset
     # this stays None and the widget says it does not run out. rate is %/h.
     exhaust_at = None
@@ -267,6 +350,7 @@ def projection(usage, st, now):
         "projected": round(min(projected, 999), 1),
         "margin": round(100 - projected, 1),
         "rate_per_day": round(rate * 24, 2),
+        "cap_per_day": cap_per_day,
         "hours_left": round(hours_left, 1),
         "basis": basis,
         "over": projected >= 100,
@@ -280,6 +364,9 @@ def projection(usage, st, now):
         "cycle_start": cycle_start.isoformat(timespec="seconds"),
         "hours_total": round((reset_dt - cycle_start).total_seconds() / 3600.0, 1),
         "hours_elapsed": round((now - cycle_start).total_seconds() / 3600.0, 1),
+        # Per-day consumption for the crest over the bar. Days with no samples
+        # come back as delta None: drawn flat, never invented.
+        "daily": daily_deltas(samples, cycle_start, now),
     }
 
 
