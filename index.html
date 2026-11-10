@@ -14,6 +14,7 @@
     --txt-mid: #a5aeba;   /* real secondary tone: between dim and txt, readable at 10px */
     --bar-track: rgba(255, 255, 255, 0.08);
     --ok: #4ade80;
+    --ok-deep: #1f7a4d;   /* muted green: "quota still left", not what is spent */
     --warn: #fbbf24;
     --crit: #f87171;
     --net: #64748b;
@@ -307,6 +308,34 @@
     overflow: visible;
     margin-bottom: 4px;
   }
+  /* Room for the per-day crest: it lives ABOVE the bar and must not touch the
+     7 px track, which keeps meaning exactly one thing (how much is spent).
+     Only reserved when there is a crest: no data, no floating gap. */
+  .proj-bar.has-crest {
+    /* 16 px crest + 3 px air: the gap is part of the reading. Flush against the
+       track, the crest reads as the bar growing thicker. */
+    margin-top: 19px;
+  }
+  /* Per-day consumption, YouTube "most replayed" style: COLOUR stays owned by
+     "spent vs pending", so the data moves to HEIGHT. Days with no samples draw
+     nothing (height 0), so a hole and a zero-consumption day are never the
+     same picture. */
+  .proj-crest {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 3px);
+    height: 16px;
+    display: flex;
+    align-items: flex-end;
+    pointer-events: none;
+  }
+  .proj-crest i {
+    display: block;
+    border-radius: 1px 1px 0 0;
+    background: var(--ok);
+  }
+  .proj-crest[hidden] { display: none; }
   .proj-fill {
     height: 100%;
     border-radius: inherit;
@@ -326,7 +355,6 @@
      there is no dry segment and everything stays green. */
   .proj-fill {
     background: var(--ok);
-    opacity: 0.45;
     border-radius: 999px 0 0 999px;
   }
   .proj-left {
@@ -335,7 +363,11 @@
     bottom: 0;
     left: 0;
     width: 0%;
-    background: var(--ok);
+    /* Muted green, not full: ONE meaning per colour across the page. Solid =
+       spent, muted = still available. It was inverted here (spent at 45 %
+       opacity, pending solid), which forced the reader to translate scales
+       inside a single screen. */
+    background: var(--ok-deep);
     transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1), width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
   }
   .proj-left[hidden] { display: none; }
@@ -473,7 +505,12 @@
      Previously the whole sentence was red and competed with projection and
      margin, which are the same overshoot: three reds for one fact. */
   .proj-hit-when { font-weight: 700; }
-  .proj-hit-delta { margin-left: auto; color: var(--crit); text-align: right; }
+  /* No colour on the BASE class: it is the verdict's colour and must come only
+     from .crit / .ok. Carrying `crit` here meant the "margin" branch inherited
+     red and the `ok` class did nothing at all, because no .ok rule existed. */
+  .proj-hit-delta { margin-left: auto; text-align: right; }
+  .proj-hit-delta.ok { color: var(--ok); }
+  .proj-hit-delta.crit { color: var(--crit); }
   .proj-hit-delta[hidden] { display: none; }
   .proj-row.wide .v.warn { color: var(--warn); }
   .proj-row.wide .v.ok { color: var(--ok); }
@@ -549,6 +586,7 @@
           <span class="extra-chev" aria-hidden="true"></span>
         </summary>
       <div class="proj-bar" id="projBar">
+        <div class="proj-crest" id="projCrest" hidden></div>
         <div class="proj-fill" id="projFill"></div>
         <div class="proj-left" id="projLeft"></div>
         <div class="proj-dry" id="projDry" hidden></div>
@@ -563,7 +601,7 @@
         <span class="mid" id="projAxisMid" hidden>—</span>
         <span id="projAxisEnd">end</span>
       </div>
-        <div class="proj-row wide"><span class="k">Hits 100 %</span><span class="v" id="projHit"><span class="proj-hit-when" id="projHitWhen">—</span><span class="proj-hit-delta" id="projHitDelta" hidden></span></span></div>
+        <div class="proj-row wide"><span class="k">How the cycle closes</span><span class="v" id="projHit"><span class="proj-hit-when" id="projHitWhen">—</span><span class="proj-hit-delta" id="projHitDelta" hidden></span></span></div>
         <div class="proj-row"><span class="k">Projected at reset</span><span class="v" id="projValue">—</span></div>
         <div class="proj-row"><span class="k" id="projMarginK">Remaining margin</span><span class="v" id="projMargin">—</span></div>
         <div class="proj-row"><span class="k">Burn rate</span><span class="v" id="projRate">—</span></div>
@@ -599,6 +637,8 @@
   var projBasis = document.getElementById("projBasis");
   var projPeek = document.getElementById("projPeek");
   var projFill = document.getElementById("projFill");
+  var projBar = document.getElementById("projBar");
+  var projCrest = document.getElementById("projCrest");
   var projValue = document.getElementById("projValue");
   var projMargin = document.getElementById("projMargin");
   var projMarginK = document.getElementById("projMarginK");
@@ -632,10 +672,13 @@
   // maxFractionDigits 2 is used for the burn rate.
   var nf1 = new Intl.NumberFormat("en-GB", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   var nf2 = new Intl.NumberFormat("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-  function fmtPct(n) { return nf1.format(n) + " %"; }
+  // Whole numbers only for the projected %: the upstream `percent` is an INTEGER
+  // (1,072 samples checked, not one with decimals), so a projected decimal
+  // claims a resolution the source does not have. One notch of the gauge moved
+  // the projection 8 pp during a single session: the integer is what holds.
+  var nf0 = new Intl.NumberFormat("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  function fmtPct(n) { return nf0.format(n) + " %"; }
   function fmtDays(n) { return nf1.format(n) + " d"; }
-
-  var CUBE_LABEL = { rolling: "5 h", weekly: "semanal", monthly: "mensual" };
 
   function levelOf(percent) {
     if (percent >= 90) return "crit";
@@ -776,6 +819,64 @@
 
     projFill.style.width = todayPct + "%";
 
+    // ---- consumption per day, as a CREST above the bar ----
+    // The bar's colour does not change: the data goes in HEIGHT. Days with no
+    // samples draw nothing (height 0), so a hole never looks like a day of zero
+    // consumption. No stripes, no colour ramp.
+    if (projCrest && projBar) {
+      var daily = p.daily || [];
+      var maxD = 0;
+      for (var di = 0; di < daily.length; di++) {
+        var dv = daily[di] && daily[di].delta;
+        if (typeof dv === "number" && dv > maxD) maxD = dv;
+      }
+      if (!daily.length || maxD <= 0) {
+        // No data: do not reserve the 19 px gap, the bar stays as it was.
+        projCrest.hidden = true;
+        projCrest.innerHTML = "";
+        projBar.classList.remove("has-crest");
+      } else {
+        projBar.classList.add("has-crest");
+        projCrest.hidden = false;
+        // Fixed neutral colour, never the verdict's level: this element records
+        // what already happened, it does not warn about anything. Borrowing
+        // `level` painted it amber while the projection was merely high.
+        projCrest.className = "proj-crest";
+        projCrest.innerHTML = "";
+        var cStart = p.cycle_start ? new Date(p.cycle_start).getTime() : null;
+        var totalMs = (typeof p.hours_total === "number" && p.hours_total > 0)
+          ? p.hours_total * 3600000 : null;
+        for (var dj = 0; dj < daily.length; dj++) {
+          var d = daily[dj] || {};
+          var cr = document.createElement("i");
+          var w = 0;
+          if (cStart !== null && totalMs) {
+            var ta = new Date(d.start).getTime();
+            var tb = new Date(d.end).getTime();
+            if (isFinite(ta) && isFinite(tb)) {
+              w = Math.max(0, Math.min(100, (tb - ta) / totalMs * 100));
+            }
+          }
+          cr.style.flex = "0 0 " + w + "%";
+          if (typeof d.delta === "number") {
+            // Floor 1.5 px so a quiet day stays visible, ceiling 16 px.
+            cr.style.height = (1.5 + 14.5 * Math.min(1, d.delta / maxD)) + "px";
+            // A day in progress (or one whose samples start late) has a MINIMUM,
+            // not a total. Dimming is the only thing separating it from a
+            // complete day, so it must never be dropped.
+            if (d.partial) cr.style.opacity = "0.55";
+            // One unit, once. The delta is a delta: percentage points, not %.
+            cr.title = (d.date || "") + " · " + nf1.format(d.delta) + " pp"
+              + (d.in_progress ? " · in progress"
+                 : d.partial ? " · partial day" : "");
+          } else {
+            cr.style.height = "0px";
+          }
+          projCrest.appendChild(cr);
+        }
+      }
+    }
+
     if (projLeft) {
       projLeft.hidden = false;
       projLeft.style.left = todayPct + "%";
@@ -831,7 +932,12 @@
       }
     }
 
-    projValue.textContent = fmtPct(p.projected);
+    // ONE rounding, both figures come from it. Rounding the projection and the
+    // margin separately does not add up: 86.5 -> "87 %" and 13.5 -> "+14 %"
+    // make 101. The margin is DERIVED from the rounded projection, so they sum
+    // to 100 by construction rather than by luck.
+    var projRound = Math.round(p.projected);
+    projValue.textContent = nf0.format(projRound) + " %";
     // Red text is RESERVED for the delta (the decision). The projected number
     // alarms through size, not colour: one red per fact.
     projValue.className = "v";
@@ -844,13 +950,23 @@
     // stays reserved for the delta.
     if (p.margin >= 0) {
       projMarginK.textContent = "Remaining margin";
-      projMargin.textContent = "+" + nf1.format(p.margin) + " %";
+      projMargin.textContent = "+" + nf0.format(100 - projRound) + " %";
     } else {
       projMarginK.textContent = "Projected overrun";
-      projMargin.textContent = nf1.format(-p.margin) + " %";
+      projMargin.textContent = nf0.format(projRound - 100) + " %";
     }
     projMargin.className = "v" + (p.margin >= 25 ? " ok" : p.margin > 0 ? " warn" : "");
-    projRate.textContent = nf2.format(p.rate_per_day) + " %/day";
+    // The rate only means something against the ceiling that still fits before
+    // the reset (exact arithmetic, not a model). Same row on purpose: split
+    // apart, you have to remember the other number.
+    // "2.0 of 2.4 %/d": the unit appears ONCE and covers both numbers.
+    projRate.textContent = (typeof p.cap_per_day === "number")
+      ? nf1.format(p.rate_per_day) + " of " + nf1.format(p.cap_per_day) + " %/d"
+      : nf1.format(p.rate_per_day) + " %/d";
+    // Full className in BOTH branches: a class set in only one branch survives
+    // the switch and paints a bad number green.
+    projRate.className = (typeof p.cap_per_day === "number"
+      && p.rate_per_day > p.cap_per_day) ? "v crit" : "v ok";
     projBasis.textContent = p.basis || "";
 
     // Date the bucket hits 100 % at the current rate. This is what matters when
@@ -877,6 +993,10 @@
       var deltaTxt = dias > 0 ? (quedaTxt || fmtDays(dias) + " early") : "";
       projHitDelta.textContent = deltaTxt;
       projHitDelta.hidden = !deltaTxt;
+      // Full className in EACH branch: here the delta IS the warning, so it
+      // goes red. Without this line the bad branch inherited whatever the good
+      // branch had set and showed the warning in green.
+      projHitDelta.className = "proj-hit-delta crit";
       // Collapsed, the right-hand summary shows the value that matters.
       if (projPeek) {
         projPeek.textContent = deltaTxt;
@@ -887,10 +1007,24 @@
       }
       projHit.className = "v";
     } else {
-      projHitWhen.textContent = "does not reach reset";
-      projHitDelta.hidden = true;
+      // Symmetry with the bad branch: there the text is a duration ("5.2 d
+      // left"), so here it is the same unit — days of cushion at the current
+      // rate. A bare verb ("lasts") says nothing measurable, and the projected
+      // closing figure is already its own row.
+      projHitWhen.textContent = "closes at " + nf0.format(projRound) + " %";
+      var holguraTxt = "";
+      var margenRed = typeof p.margin === "number" ? Math.round(p.margin) : 0;
+      if (margenRed > 0
+          && typeof p.rate_per_day === "number" && p.rate_per_day > 0.05) {
+        holguraTxt = "margin " + nf1.format(margenRed / p.rate_per_day) + " d";
+      }
+      projHitDelta.textContent = holguraTxt;
+      projHitDelta.hidden = !holguraTxt;
+      // Full className in each branch: a class set only in the bad branch
+      // survives here and paints good news red.
+      projHitDelta.className = "proj-hit-delta ok";
       if (projPeek) {
-        projPeek.textContent = "lasts";
+        projPeek.textContent = holguraTxt || ("closes at " + nf0.format(projRound) + " %");
         projPeek.hidden = false;
         projPeek.className = "extra-peek ok";
       }
