@@ -6,7 +6,7 @@
 
 <img src="docs/preview.png" width="420" alt="The Runway card: rolling, weekly and monthly quota with the projected close">
 
-[![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)](#run)
+[![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)](#quickstart)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](#what-it-is)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Single file](https://img.shields.io/badge/serves-one%20HTML%20file-black)](#endpoints)
@@ -24,10 +24,8 @@ opencode go answers `/usage` with three percentages and three timestamps. That
 tells you where you are, never where you are heading — and the monthly bucket is
 the one that can end your week.
 
-Runway is one Python file that serves the card above. No build, no CDN, no web
-fonts, no model names.
-
-## What it does
+Runway is one Python file that serves the card above. It adds the only two
+numbers that answer the question, and nothing else:
 
 - **The ceiling** — `(100 − current) / days to reset`, exact arithmetic, no model.
   How much you can spend per day and still reach the reset alive.
@@ -39,13 +37,13 @@ ceiling with a little air. `3.8 of 2.4` runs dry before the reset, and the card
 names the day. The bars above the projection line are consumption per day,
 YouTube "most replayed" style: height is the data, colour is not.
 
-**Your key never leaves the machine.** It is read locally and used only in an
-outbound request header; the browser receives percentages, nothing else. If
-upstream fails the card keeps the last good reading, flags it stale and turns the
-pill amber instead of blanking. Querying `/usage` costs no quota — it is a
-billing endpoint, not inference.
+No build, no CDN, no web fonts, no model names. **Your key never leaves the
+machine** — it is read locally and used only in an outbound request header; the
+browser receives percentages, nothing else. If upstream fails the card keeps the
+last good reading, flags it stale and turns the pill amber instead of blanking.
+Querying `/usage` costs no quota: it is a billing endpoint, not inference.
 
-## Run
+## Quickstart
 
 Python 3.9+ and an opencode go key. That is the whole list. The key is found from
 the first matching source:
@@ -67,13 +65,13 @@ python3 serve.py --bind 0.0.0.0   # reachable from your phone
 ./install.sh                      # systemd unit, survives logout
 ```
 
-`--check` prints the last 4 characters of the key, never the key.
-`--port auto` starts at 8099 and takes the first free port, so an occupied port
-is never a manual decision. `BIND=auto` picks **loopback** on a machine with a
-graphical session and **LAN** on a headless host. There is no authentication, so
-startup warns when the resulting address is not loopback. `./install.sh` runs
-`--check` first, writes the unit and confirms the URL answers, or prints the
-foreground command instead if it cannot write to systemd. It never prompts.
+`--check` prints the last 4 characters of the key, never the key. `--port auto`
+starts at 8099 and takes the first free port, so an occupied port is never a
+manual decision. `BIND=auto` picks **loopback** on a machine with a graphical
+session and **LAN** on a headless host, where loopback would be unopenable for
+you. There is no authentication, so startup warns when the address is not
+loopback. `./install.sh` runs `--check` first, writes the unit and confirms the
+URL answers, or prints the foreground command if it cannot write to systemd.
 
 ## How it works
 
@@ -90,7 +88,7 @@ days**, one full cycle, so the per-day bars are not born half empty.
 - **Days are marked incomplete, not guessed.** Today's figure is a `max − min`
   floor, so those bars sit at 55 % opacity and say `in progress` on hover.
 - **One rounding, two figures.** Projected close and margin come from the same
-  rounded number, so they add to 100. Rounding them apart gave 87 + 14 = 101.
+  rounded number, so they add to 100. Rounding them apart gave 87 % + 14 % = 101.
 
 The upstream `percent` is an **integer**, so the rate is a chord between whole
 steps of a gauge. With little movement in the window, ±1 point is most of the
@@ -122,12 +120,10 @@ Flags `--port`, `--bind`, `--json` and `--check` override the environment.
 | Route | Content |
 |---|---|
 | `/` | The dashboard |
-| `/quota.json` | Live quota + projection, cached 60 s |
+| `/quota.json` | Live quota + projection, cached 60 s — plain JSON, usable by another client |
 | `/healthz` | `{ok, age_s, stale, error}` |
 
-`/quota.json` exists because the page consumes it, and stays useful for another
-client. Only `GET` is implemented; the server never serves its own source or
-`state.json`.
+Only `GET` is implemented; the server never serves its own source or `state.json`.
 
 ## Known limitations
 
@@ -166,27 +162,23 @@ Paste this into OpenClaw, or any coding agent with shell access:
 > Clone https://github.com/hrodres/opencode-quota-dashboard and set it up for
 > me. Follow its AGENTS.md. Tell me the URL when it answers.
 
-That is the entire instruction. `AGENTS.md` is written for the agent, not for
-you, and covers the port, the key, the service and the failure modes.
+`AGENTS.md` is written for the agent, not for you, and covers the port, the key,
+the service and the failure modes. Under the hood it runs one command that prints
+**exactly one JSON object** (`url` is the one to open from another device;
+`key_tail` is 4 characters, never the key):
 
-Under the hood it runs one command, which prints **exactly one JSON object**:
-
-```bash
-$ ./install.sh --json
-{"ok": true, "url": "http://192.168.1.50:8100/", "local_url": "http://127.0.0.1:8100/",
- "port": 8100, "bind": "0.0.0.0", "key_source": "openclaw secret store",
- "key_tail": "-D5O", "upstream": "ok", "installed": 1, "answering": 1}
+```json
+{"ok": true, "url": "http://192.168.1.50:8100/", "port": 8100, "bind": "0.0.0.0",
+ "key_source": "openclaw secret store", "key_tail": "-D5O", "upstream": "ok",
+ "installed": 1, "answering": 1}
 ```
-
-`url` is the one to open from another device. `key_tail` is 4 characters, never
-the key.
 
 </details>
 
 <details>
 <summary>The card as plain text</summary>
 
-For a terminal or anything that cannot render the image above:
+For a terminal, a changelog, or anything that cannot render the image above:
 
 ```text
   opencode go                         10 Nov, 18:32   ● LIVE   ↻
