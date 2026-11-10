@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="300" viewBox="0 0 760 300" role="img" aria-label="Runway">
+  <title>Runway</title>
+  <rect x="1" y="1" width="758" height="298" rx="24" ry="24" fill="#0B0E14"
+        stroke="#1F2937" stroke-width="2"/>
+  <g fill="#E6EDF3">
+    <g transform="translate(48.68,166.00) scale(0.132000,-0.132000)"><path d="M68 0H205V283L399 0H568L368 273C425 287 453 300 485 327C536 370 561 428 561 502C561 578 534 641 483 684C435 725 382 739 281 739H68ZM205 386V608H266C330 608 365 601 387 582C411 563 423 534 423 498C423 420 378 386 272 386Z"/></g>
+    <g transform="translate(146.36,166.00) scale(0.132000,-0.132000)"><path d="M68 739V271C68 192 80 141 108 97C151 29 231 -13 317 -13C398 -13 473 23 517 82C552 130 567 185 567 271V739H430V271C430 216 426 193 412 169C393 138 358 119 317 119C277 119 242 138 223 169C209 193 205 216 205 271V739Z"/></g>
+    <g transform="translate(251.96,166.00) scale(0.132000,-0.132000)"><path d="M68 0H205V537L514 0H667V739H530V201L224 739H68Z"/></g>
+    <g transform="translate(370.76,166.00) scale(0.132000,-0.132000)"><path d="M224 0H332L454 489L573 0H682L898 739H758L627 223L503 739H403L277 223L147 739H7Z"/></g>
+    <g transform="translate(510.68,166.00) scale(0.132000,-0.132000)"><path d="M7 0H158L240 191H503L582 0H733L423 739H315ZM290 322 369 546 448 322Z"/></g>
+    <g transform="translate(629.48,166.00) scale(0.132000,-0.132000)"><path d="M246 0H383V273L626 739H478L314 399L151 739H3L246 273Z"/></g>
+  </g>
+  
+<line x1="92" y1="236" x2="472.2" y2="236" stroke="#4ADE80" stroke-width="6" stroke-linecap="round" opacity="0.9"/>  <line x1="478.2" y1="236" x2="490.2" y2="236" stroke="#5A6474" stroke-width="6" stroke-linecap="round"/>  <line x1="500.2" y1="236" x2="512.2" y2="236" stroke="#5A6474" stroke-width="6" stroke-linecap="round"/>  <line x1="522.2" y1="236" x2="534.2" y2="236" stroke="#5A6474" stroke-width="6" stroke-linecap="round"/>  <line x1="544.2" y1="236" x2="556.2" y2="236" stroke="#5A6474" stroke-width="6" stroke-linecap="round"/>  <line x1="566.2" y1="236" x2="578.2" y2="236" stroke="#5A6474" stroke-width="6" stroke-linecap="round"/>  <line x1="588.2" y1="236" x2="600.2" y2="236" stroke="#5A6474" stroke-width="6" stroke-linecap="round"/>  <line x1="610.2" y1="236" x2="622.2" y2="236" stroke="#5A6474" stroke-width="6" stroke-linecap="round"/>  <line x1="632.2" y1="236" x2="644.2" y2="236" stroke="#5A6474" stroke-width="6" stroke-linecap="round"/>  <line x1="654.2" y1="236" x2="666.2" y2="236" stroke="#5A6474" stroke-width="6" stroke-linecap="round"/>  <line x1="633.4" y1="216" x2="633.4" y2="256" stroke="#FBBF24" stroke-width="6" stroke-linecap="round"/>
+</svg>

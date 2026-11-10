@@ -1,6 +1,6 @@
 <div align="center">
 
-# Runway
+<img src="docs/logo.svg" width="356" alt="Runway — opencode go quota dashboard">
 
 ### opencode go quota dashboard
 
