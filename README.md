@@ -9,7 +9,7 @@
 A single dark card for your **opencode go** quota, served by one Python file.
 No dependencies, no build step, no Node, no CDN.
 
-<img src="docs/preview.png" width="356" alt="The Runway card: rolling, weekly and monthly quota with the projected close">
+<img src="docs/preview.png" width="420" alt="The Runway card: rolling, weekly and monthly quota with the projected close">
 
 [![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)](#requirements)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](#highlights)
