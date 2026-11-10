@@ -1,11 +1,15 @@
 <div align="center">
 
-# opencode-quota-dashboard
+# Runway
+
+### opencode go quota dashboard
 
 **Three quota buckets. One burn rate. The date you run dry — before you run dry.**
 
 A single dark card for your **opencode go** quota, served by one Python file.
 No dependencies, no build step, no Node, no CDN.
+
+<img src="docs/preview.png" width="356" alt="The Runway card: rolling, weekly and monthly quota with the projected close">
 
 [![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)](#requirements)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](#highlights)
@@ -23,7 +27,9 @@ cd opencode-quota-dashboard && python3 serve.py
 
 ## What it looks like
 
-```
+The same card as plain text, for anything that cannot render the image above:
+
+```text
   opencode go                         10 Nov, 18:32   ● LIVE   ↻
   ─────────────────────────────────────────────────────────────
   Rolling    5-hour window       3 %   ▏▏▏                  in 4 h 8 min
