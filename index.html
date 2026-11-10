@@ -1078,6 +1078,10 @@
     }
     renderCubes();
     renderProjection(payload.projection);
+    // The axis check needs real widths, which only exist once the block is
+    // visible. A closed <details> reports zeros, so this is a no-op there and
+    // runs for real on every refresh where the block is open.
+    settleAxisLabels();
   }
 
   function handleFetchError(err) {
@@ -1121,6 +1125,27 @@
   fetchQuota();
   setInterval(fetchQuota, REFRESH_MS);
   setInterval(tick, 1000);
+
+  // The limit date on the axis can collide with "end <date>" when exhaustion
+  // lands near the right edge. The limit is already spelled out in full in the
+  // "How the cycle closes" row, so the axis copy is dropped instead of printing
+  // two dates on top of each other. Measured, not guessed: a percentage
+  // threshold breaks as soon as a date string changes width. Re-run on open
+  // because a closed <details> reports zero widths and the check would no-op.
+  function settleAxisLabels() {
+    if (!projAxisMid || projAxisMid.hidden) return;
+    if (!projAxisEnd) return;
+    var midR = projAxisMid.getBoundingClientRect();
+    var endR = projAxisEnd.getBoundingClientRect();
+    if (!midR.width || !endR.width) return;
+    if (midR.right > endR.left - 4) projAxisMid.hidden = true;
+  }
+  if (projBlock) {
+    projBlock.addEventListener("toggle", function () {
+      if (projBlock.open) requestAnimationFrame(settleAxisLabels);
+    });
+  }
+  window.addEventListener("resize", settleAxisLabels);
 })();
 </script>
 </body>

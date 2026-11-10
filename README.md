@@ -4,7 +4,7 @@
 
 **Three quota buckets. One burn rate. The date you run dry — before you run dry.**
 
-<img src="docs/preview.png" width="420" alt="The Runway card: rolling, weekly and monthly quota with the projected close">
+<img src="docs/preview.png" width="420" alt="The Runway card: rolling, weekly and monthly quota, with a projection that closes at 109 % three days before the reset">
 
 [![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)](#quickstart)
 [![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](#what-it-is)
@@ -32,10 +32,12 @@ numbers that answer the question, and nothing else:
 - **The projected close** — current % plus your measured burn rate times the days
   left, and the date you hit 100 % if you keep going.
 
-Read together they say what a percentage cannot: `2.0 of 2.4 %/d` is under the
-ceiling with a little air. `3.8 of 2.4` runs dry before the reset, and the card
-names the day. The bars above the projection line are consumption per day,
-YouTube "most replayed" style: height is the data, colour is not.
+Read together they say what a percentage cannot. The card above is the real
+thing mid-cycle: `3.0 of 2.3 %/d` is over the ceiling, so the projection closes
+at **109 %** and names the day it happens — **21 Nov**, three days before the
+24 Nov reset. A percentage alone would have read `69 %` and looked fine. The
+bars above the projection line are consumption per day, YouTube "most replayed"
+style: height is the data, colour is not.
 
 No build, no CDN, no web fonts, no model names. **Your key never leaves the
 machine** — it is read locally and used only in an outbound request header; the
@@ -181,17 +183,17 @@ the service and the failure modes. Under the hood it runs one command that print
 For a terminal, a changelog, or anything that cannot render the image above:
 
 ```text
-  opencode go                         10 Nov, 18:32   ● LIVE   ↻
+  opencode go                         10 Nov, 21:54   ● LIVE   ↻
   ─────────────────────────────────────────────────────────────
-  Rolling    5-hour window       3 %   ▏▏▏                  in 4 h 8 min
-  Weekly     weekly cycle        7 %   ▏▏▏▏▏                in 5 d 5 h
-  Monthly    monthly cycle      67 %   ▏▏▏▏▏▏▏▏▏▏▏▏▏▏       in 13 d 13 h
-             ▁▂▃█▄▂▁▁▂ ···································
+  Rolling    5-hour window      14 %   ▏▏▏▏▏▏▏              in 45 min
+  Weekly     weekly cycle       12 %   ▏▏▏▏▏▏               in 5 d 2 h
+  Monthly    monthly cycle      69 %   ▏▏▏▏▏▏▏▏▏▏▏▏▏▏       in 13 d 10 h
+             ▁▂▃█▄▂▁▁▂▁▁▁▂▁▁ ···································
              start 24 Oct        now                end 24 Nov
-             How the cycle closes      closes at 94 %   margin 3.0 d
-             Projected at reset                             94 %
-             Remaining margin                               +6 %
-             Burn rate                              2.0 of 2.4 %/d
+             How the cycle closes   Sat 21 Nov 05:40   3.1 d early
+             Projected at reset                            109 %
+             Projected overrun                               9 %
+             Burn rate                              3.0 of 2.3 %/d
 ```
 
 </details>
